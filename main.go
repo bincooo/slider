@@ -1,3 +1,4 @@
+// "形状内部饱和度 vs 外围环饱和度"的局部色彩反差算法
 package main
 
 import (
@@ -10,8 +11,6 @@ import (
 	"os"
 	"runtime"
 	"sync"
-
-	"golang.org/x/image/colornames"
 )
 
 // loadImage 从指定路径加载图片（支持 image 包已注册解码器的格式，如 png/jpeg）
@@ -144,12 +143,12 @@ func dilateMask(mask [][]bool, radius int) [][]bool {
 
 	// 第一步：水平方向膨胀
 	horiz := make([][]bool, height)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		horiz[y] = make([]bool, width)
 
 		// prefix[i] 表示 mask[y][0..i-1] 中 true 的个数
 		prefix := make([]int, width+1)
-		for x := 0; x < width; x++ {
+		for x := range width {
 			c := 0
 			if mask[y][x] {
 				c = 1
@@ -157,11 +156,8 @@ func dilateMask(mask [][]bool, radius int) [][]bool {
 			prefix[x+1] = prefix[x] + c
 		}
 
-		for x := 0; x < width; x++ {
-			lo := x - radius
-			if lo < 0 {
-				lo = 0
-			}
+		for x := range width {
+			lo := max(x-radius, 0)
 			hi := x + radius
 			if hi >= width {
 				hi = width - 1
@@ -176,20 +172,17 @@ func dilateMask(mask [][]bool, radius int) [][]bool {
 	for y := range result {
 		result[y] = make([]bool, width)
 	}
-	for x := 0; x < width; x++ {
+	for x := range width {
 		prefix := make([]int, height+1)
-		for y := 0; y < height; y++ {
+		for y := range height {
 			c := 0
 			if horiz[y][x] {
 				c = 1
 			}
 			prefix[y+1] = prefix[y] + c
 		}
-		for y := 0; y < height; y++ {
-			lo := y - radius
-			if lo < 0 {
-				lo = 0
-			}
+		for y := range height {
+			lo := max(y-radius, 0)
 			hi := y + radius
 			if hi >= height {
 				hi = height - 1
@@ -279,10 +272,7 @@ func matchByLocalContrast(bgSat [][]float64, bgBrightness [][]float64, shapeMask
 
 	// 按行区间划分任务，并行搜索
 	rowsTotal := yEnd - yStart + 1
-	numWorkers := runtime.NumCPU()
-	if numWorkers > rowsTotal {
-		numWorkers = rowsTotal
-	}
+	numWorkers := min(runtime.NumCPU(), rowsTotal)
 	chunkSize := (rowsTotal + numWorkers - 1) / numWorkers
 
 	var mu sync.Mutex
@@ -375,11 +365,11 @@ func drawRect(img image.Image, rect image.Rectangle, lineColor color.Color) *ima
 
 func main() {
 	// 1. 加载背景图（带缺口的完整图）和拼图碎片图（带透明通道）
-	bgImg, err := loadImage("bg2.png")
+	bgImg, err := loadImage("bg6.png")
 	if err != nil {
 		panic(err)
 	}
-	blockImg, err := loadImage("block2.png")
+	blockImg, err := loadImage("block6.png")
 	if err != nil {
 		panic(err)
 	}
@@ -431,8 +421,8 @@ func main() {
 
 	// 7. 在背景图上用矩形框标记出匹配到的缺口位置，方便可视化检查
 	matchRect := image.Rect(result.X, result.Y, result.X+bbox.Dx(), result.Y+bbox.Dy())
-	marked := drawRect(bgImg, matchRect, colornames.Lime)
-	if err := saveImage(marked, "slider/marked.png"); err != nil {
+	marked := drawRect(bgImg, matchRect, color.RGBA{G: 0xff, A: 0xff})
+	if err = saveImage(marked, "marked.png"); err != nil {
 		fmt.Println("保存标记图失败:", err)
 	}
 
